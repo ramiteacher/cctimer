@@ -1,0 +1,63 @@
+	<!DOCTYPE html>
+
+<html>
+<head> 
+    <link rel="stylesheet" href="style.css" type="text/css">
+    <script type="text/javascript" src="script.js">
+</script>
+</head>
+
+<body>
+
+<div id="full">
+    <div id="main"> 
+                <div id="currentMode">모드를 선택해주세요</div>
+                <div id="text"> 지금은 근무시간 입니다. </div>  
+    </div>
+  
+    <div id= "bottom_frame">
+        <input type="button" value="기본모드" onclick="checkstate(`standard`);">
+        <input type="button" value="단축모드" onclick="checkstate(`short`);">
+        <input type="button" value="디버그모드" onclick="toggleDebugMode();">
+       
+        <div id="title">Creativecrew_Timer v5.0 by Paranbear X Ramiteacher </div>  
+        <div id="dpTime">시간표시 </div>  
+    </div>
+
+    <!-- 디버그 모드 컨트롤 -->
+    <div id="debugPanel" style="display: none; position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.8); color: white; padding: 15px; border-radius: 10px; z-index: 1000;">
+        <h3>디버그 모드</h3>
+        <div>
+            <label>시간 설정:</label><br>
+            <input type="number" id="debugHour" min="0" max="23" value="10" style="width: 50px;"> :
+            <input type="number" id="debugMinute" min="0" max="59" value="0" style="width: 50px;"> :
+            <input type="number" id="debugSecond" min="0" max="59" value="0" style="width: 50px;">
+        </div>
+        <br>
+        <div>
+            <button onclick="setDebugTime();">시간 설정</button>
+            <button onclick="resetToRealTime();">실시간 복원</button>
+        </div>
+        <br>
+        <div>
+            <button onclick="testSchedule('work');">근무시간 테스트</button>
+            <button onclick="testSchedule('rest');">쉬는시간 테스트</button>
+            <button onclick="testSchedule('lunch');">점심시간 테스트</button>
+            <button onclick="testSchedule('finish');">퇴근시간 테스트</button>
+        </div>
+        <br>
+        <div>
+            <button onclick="stopCurrentAudio();" style="background-color: #ff4444; color: white;">오디오 중지</button>
+        </div>
+        <br>
+        <div>
+            <label>다음 스케줄:</label><br>
+            <div id="nextSchedule" style="font-size: 12px; color: #00ff00;"></div>
+        </div>
+    </div>
+
+   
+
+</div>
+</body>
+</html>

@@ -1,0 +1,44 @@
+html{
+    background-color: black;
+}
+
+#main {
+    display: block;       /* iframes are inline by default */
+    background: #000;
+    border: none;         /* Reset default border */
+    height: 92vh;        /* Viewport-relative units */
+    width: 100%;
+    }
+
+input{
+    float: left; width: 25%; height: 90px;
+    font-weight:bold;
+    font-size: 15pt;
+    
+}
+
+#dpTime {
+    float: right; 
+    font-size: 25pt;
+    color: white;
+}
+#currentMode {
+    left: 50%; transform: translateX(-50%);
+    position: absolute; top: 35%;
+    font-size: 18pt;
+    color: #00ff00;
+    font-weight: bold;
+}
+
+#text {
+    left: 50%; transform: translateX(-50%);
+    position: absolute; top: 50%;
+    font-size: 25pt;
+    color: white;
+}
+
+#title {
+    float: left; 
+    font-size: 15pt;
+    color: grey;
+}
