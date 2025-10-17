@@ -177,7 +177,7 @@ function audioctrl(type){
             filename = `rest_${generateRandom(1, 11)}.mp3`;
             break;
         case 'lunch':
-            filename = `lu_${generateRandom(1, 2)}.mp3`;
+            filename = `lu_${generateRandom(1, 3)}.mp3`;
             break;
         case 'finish':
             filename = `f_${generateRandom(1, 2)}.mp3`;
