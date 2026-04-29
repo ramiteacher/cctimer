@@ -7,10 +7,15 @@ const submitButton = document.getElementById("submitButton");
 const statusMessage = document.getElementById("statusMessage");
 const recentSongsList = document.getElementById("recentSongsList");
 const clearHistoryButton = document.getElementById("clearHistoryButton");
+const wakeTestButton = document.getElementById("wakeTestButton");
 
 let socket = null;
 let socketConnected = false;
 let reconnectTimer = null;
+let wakeTestAudio = null;
+let wakeTestObjectUrl = null;
+
+const CCPLAY_WAKE_PHRASE = "헤이 클로바";
 
 function getWebSocketUrl() {
   if (window.CCPLAY_WS_URL && typeof window.CCPLAY_WS_URL === "string" && window.CCPLAY_WS_URL.trim() !== "") {
@@ -24,6 +29,25 @@ function getWebSocketUrl() {
 function setStatus(message, isError) {
   statusMessage.textContent = message;
   statusMessage.classList.toggle("error", Boolean(isError));
+}
+
+function getApiBaseUrl() {
+  const socketUrl = new URL(getWebSocketUrl());
+  socketUrl.protocol = socketUrl.protocol === "wss:" ? "https:" : "http:";
+  return socketUrl.origin;
+}
+
+function clearWakeTestAudio() {
+  if (wakeTestAudio) {
+    wakeTestAudio.pause();
+    wakeTestAudio.currentTime = 0;
+    wakeTestAudio = null;
+  }
+
+  if (wakeTestObjectUrl) {
+    URL.revokeObjectURL(wakeTestObjectUrl);
+    wakeTestObjectUrl = null;
+  }
 }
 
 function loadRecentSongs() {
@@ -106,6 +130,9 @@ function connectSocket() {
   socket.addEventListener("open", function () {
     socketConnected = true;
     submitButton.disabled = false;
+    if (wakeTestButton) {
+      wakeTestButton.disabled = false;
+    }
     setStatus("곡명을 입력하면 바로 요청이 전달됩니다.", false);
   });
 
@@ -135,6 +162,9 @@ function connectSocket() {
   socket.addEventListener("close", function () {
     socketConnected = false;
     submitButton.disabled = true;
+    if (wakeTestButton) {
+      wakeTestButton.disabled = true;
+    }
     setStatus("서버 연결이 끊겼습니다. 다시 연결 중입니다.", true);
 
     if (reconnectTimer) {
@@ -204,9 +234,83 @@ function clearHistory() {
   setStatus("최근 요청 기록을 비웠습니다.", false);
 }
 
+async function playWakeWordTest() {
+  if (!wakeTestButton) {
+    return;
+  }
+
+  if (!socketConnected) {
+    setStatus("서버 연결 후 호출 테스트를 사용할 수 있습니다.", true);
+    return;
+  }
+
+  wakeTestButton.disabled = true;
+  setStatus("호출 테스트 음성을 준비하는 중입니다.", false);
+
+  try {
+    const response = await fetch(getApiBaseUrl() + "/api/tts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ text: CCPLAY_WAKE_PHRASE })
+    });
+
+    if (!response.ok) {
+      let errorMessage = "호출 테스트 음성 생성에 실패했습니다.";
+
+      try {
+        const errorPayload = await response.json();
+        if (errorPayload && errorPayload.error) {
+          errorMessage = errorPayload.error;
+        }
+      } catch (error) {
+        const rawText = await response.text();
+        if (rawText) {
+          errorMessage = rawText;
+        }
+      }
+
+      throw new Error(errorMessage);
+    }
+
+    clearWakeTestAudio();
+    wakeTestObjectUrl = URL.createObjectURL(await response.blob());
+    wakeTestAudio = new Audio(wakeTestObjectUrl);
+    wakeTestAudio.volume = 1;
+
+    wakeTestAudio.addEventListener("ended", function () {
+      clearWakeTestAudio();
+      if (wakeTestButton) {
+        wakeTestButton.disabled = !socketConnected;
+      }
+      setStatus("호출 테스트 재생이 끝났습니다.", false);
+    });
+
+    wakeTestAudio.addEventListener("error", function () {
+      clearWakeTestAudio();
+      if (wakeTestButton) {
+        wakeTestButton.disabled = !socketConnected;
+      }
+      setStatus("호출 테스트 오디오 재생에 실패했습니다.", true);
+    });
+
+    await wakeTestAudio.play();
+    setStatus("헤이 클로바 호출 테스트를 재생합니다.", false);
+  } catch (error) {
+    clearWakeTestAudio();
+    setStatus(error && error.message ? error.message : "호출 테스트 생성에 실패했습니다.", true);
+    wakeTestButton.disabled = !socketConnected;
+  }
+}
+
 form.addEventListener("submit", handleSubmit);
 recentSongsList.addEventListener("click", handleRecentSongClick);
 clearHistoryButton.addEventListener("click", clearHistory);
+if (wakeTestButton) {
+  wakeTestButton.addEventListener("click", playWakeWordTest);
+  wakeTestButton.disabled = true;
+}
 
 renderRecentSongs();
 connectSocket();

@@ -13,8 +13,16 @@
       <h1>노래 요청 보내기</h1>
       <p class="ccplay-description">
         곡명을 입력하면 노트북에 열려 있는 CCTimer가
-        <strong>클로바, [곡명] 틀어줘</strong> 문구를 TTS로 재생합니다.
+        <strong>헤이 클로바. [곡명] 틀어줘.</strong> 문구를 TTS로 재생합니다.
       </p>
+
+      <section class="ccplay-wake-test">
+        <div class="ccplay-wake-copy">
+          <div class="ccplay-label">호출 테스트</div>
+          <div class="ccplay-wake-phrase">현재 호출어: 헤이 클로바</div>
+        </div>
+        <button type="button" id="wakeTestButton" class="ghost-button accent-button">클로바 호출 테스트</button>
+      </section>
 
       <form id="ccplayForm" class="ccplay-form">
         <label for="songTitle" class="ccplay-label">곡명</label>
