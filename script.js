@@ -25,8 +25,10 @@ let currentTtsFetchController = null;
 let ttsAudioContext = null;
 let ttsGainNode = null;
 let ttsPlaybackToken = 0;
+let wakeWordTestActive = false;
 
 const TTS_GAIN_MULTIPLIER = 2.8;
+const CCPLAY_WAKE_PHRASE = "헤이 클로바";
 
 const standardSchedule = [
   { time: "10:50", type: "rest", message: "지금은 쉬는시간 입니다." },
@@ -86,6 +88,10 @@ function getApiBaseUrl() {
 
 function getAudioContextConstructor() {
   return window.AudioContext || window.webkitAudioContext || null;
+}
+
+function buildCcplaySpeechText(songTitle) {
+  return CCPLAY_WAKE_PHRASE + ". " + songTitle + " 틀어줘.";
 }
 
 function getActiveClock() {
@@ -548,6 +554,10 @@ function maybeProcessCcplayQueue() {
     return;
   }
 
+  if (wakeWordTestActive || ccplaySpeechActive) {
+    return;
+  }
+
   if (activeCcplayRequest) {
     if (!ccplaySpeechActive && ccplaySpeechInterrupted) {
       speakActiveCcplayRequest();
@@ -647,7 +657,7 @@ async function speakActiveCcplayRequest() {
   }
 
   const requestId = activeCcplayRequest.id;
-  const speechText = "클로바, " + activeCcplayRequest.songTitle + " 틀어줘";
+  const speechText = buildCcplaySpeechText(activeCcplayRequest.songTitle);
   const token = ttsPlaybackToken + 1;
 
   ttsPlaybackToken = token;
@@ -695,13 +705,17 @@ function finalizeActiveCcplayRequest(status) {
 }
 
 function interruptCcplaySpeechForTimer() {
-  if (!activeCcplayRequest) {
+  if (!activeCcplayRequest && !wakeWordTestActive && !ccplaySpeechActive) {
     return;
   }
 
   ttsPlaybackToken += 1;
   cleanupCurrentTtsPlayback();
-  ccplaySpeechInterrupted = true;
+  if (activeCcplayRequest) {
+    ccplaySpeechInterrupted = true;
+  } else {
+    wakeWordTestActive = false;
+  }
   renderCcplayPanel();
 }
 
@@ -728,25 +742,129 @@ function stopCurrentAudio() {
 
   if (activeCcplayRequest) {
     skipActiveCcplayRequest();
+  } else if (wakeWordTestActive || ccplaySpeechActive) {
+    ttsPlaybackToken += 1;
+    wakeWordTestActive = false;
+    cleanupCurrentTtsPlayback();
+    renderCcplayPanel();
+  }
+}
+
+async function playWakeWordTest() {
+  if (!supportsTtsPlayback()) {
+    setCcplayError("이 브라우저는 오디오 재생을 지원하지 않습니다.");
+    return;
+  }
+
+  if (timerAudioActive) {
+    setCcplayError("타이머 오디오 재생 중에는 호출 테스트를 할 수 없습니다.");
+    return;
+  }
+
+  if (activeCcplayRequest || ccplaySpeechActive || wakeWordTestActive) {
+    setCcplayError("현재 다른 요청 또는 테스트 오디오가 재생 중입니다.");
+    return;
+  }
+
+  const token = ttsPlaybackToken + 1;
+  ttsPlaybackToken = token;
+  wakeWordTestActive = true;
+  ccplaySpeechActive = true;
+  clearCcplayError();
+  renderCcplayPanel();
+
+  try {
+    const audioBlob = await fetchTtsAudioBlob(CCPLAY_WAKE_PHRASE, token);
+
+    if (token !== ttsPlaybackToken || !wakeWordTestActive) {
+      return;
+    }
+
+    clearCurrentTtsAudio();
+
+    currentTtsObjectUrl = URL.createObjectURL(audioBlob);
+    const audio = new Audio(currentTtsObjectUrl);
+    audio.preload = "auto";
+    audio.volume = 1;
+    currentTtsAudio = audio;
+
+    await ensureAmplifiedTtsPlayback(audio);
+
+    audio.addEventListener("ended", function () {
+      if (token !== ttsPlaybackToken || !wakeWordTestActive) {
+        return;
+      }
+
+      clearCurrentTtsAudio();
+      wakeWordTestActive = false;
+      ccplaySpeechActive = false;
+      renderCcplayPanel();
+      maybeProcessCcplayQueue();
+    });
+
+    audio.addEventListener("error", function () {
+      if (token !== ttsPlaybackToken || !wakeWordTestActive) {
+        return;
+      }
+
+      clearCurrentTtsAudio();
+      wakeWordTestActive = false;
+      ccplaySpeechActive = false;
+      setCcplayError("호출 테스트 오디오 재생에 실패했습니다.");
+      renderCcplayPanel();
+      maybeProcessCcplayQueue();
+    });
+
+    await audio.play();
+  } catch (error) {
+    if (token !== ttsPlaybackToken) {
+      return;
+    }
+
+    cleanupCurrentTtsPlayback();
+    wakeWordTestActive = false;
+    ccplaySpeechActive = false;
+
+    if (error && error.name === "AbortError") {
+      renderCcplayPanel();
+      return;
+    }
+
+    setCcplayError(error && error.message ? error.message : "호출 테스트 생성에 실패했습니다.");
+    renderCcplayPanel();
   }
 }
 
 function renderCcplayPanel() {
   const connectionElement = document.getElementById("ccplayConnectionStatus");
   const currentElement = document.getElementById("ccplayCurrentRequest");
+  const wakePhraseElement = document.getElementById("ccplayWakePhrase");
   const queueElement = document.getElementById("ccplayQueueList");
   const skipButton = document.getElementById("ccplaySkipButton");
+  const wakeTestButton = document.getElementById("ccplayWakeTestButton");
   const clearButton = document.getElementById("ccplayClearQueueButton");
   const errorElement = document.getElementById("ccplayError");
 
-  if (!connectionElement || !currentElement || !queueElement || !skipButton || !clearButton || !errorElement) {
+  if (
+    !connectionElement ||
+    !currentElement ||
+    !wakePhraseElement ||
+    !queueElement ||
+    !skipButton ||
+    !wakeTestButton ||
+    !clearButton ||
+    !errorElement
+  ) {
     return;
   }
 
   connectionElement.textContent = ccplayConnectionMessage;
   currentElement.textContent = activeCcplayRequest
-    ? "클로바, " + activeCcplayRequest.songTitle + " 틀어줘"
-    : "현재 재생 중인 요청이 없습니다.";
+    ? buildCcplaySpeechText(activeCcplayRequest.songTitle)
+    : wakeWordTestActive
+      ? "호출 테스트 재생 중: " + CCPLAY_WAKE_PHRASE
+      : "현재 재생 중인 요청이 없습니다.";
+  wakePhraseElement.textContent = "현재 호출어: " + CCPLAY_WAKE_PHRASE;
 
   if (ccplayQueue.length === 0) {
     queueElement.innerHTML = '<li class="ccplay-empty">대기 중인 요청이 없습니다.</li>';
@@ -768,6 +886,7 @@ function renderCcplayPanel() {
   }
 
   skipButton.disabled = !activeCcplayRequest || !socketConnected;
+  wakeTestButton.disabled = timerAudioActive || ccplaySpeechActive || wakeWordTestActive || Boolean(activeCcplayRequest);
   clearButton.disabled = ccplayQueue.length === 0 || !socketConnected;
 
   if (ccplayLastError) {
@@ -785,6 +904,7 @@ function initializeCcplayPanel() {
 
   const queueElement = document.getElementById("ccplayQueueList");
   const skipButton = document.getElementById("ccplaySkipButton");
+  const wakeTestButton = document.getElementById("ccplayWakeTestButton");
   const clearButton = document.getElementById("ccplayClearQueueButton");
 
   if (queueElement) {
@@ -803,6 +923,10 @@ function initializeCcplayPanel() {
 
   if (skipButton) {
     skipButton.addEventListener("click", skipActiveCcplayRequest);
+  }
+
+  if (wakeTestButton) {
+    wakeTestButton.addEventListener("click", playWakeWordTest);
   }
 
   if (clearButton) {

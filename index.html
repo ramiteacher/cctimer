@@ -15,13 +15,21 @@
       <aside id="ccplayPanel" class="ccplay-panel">
         <div class="ccplay-panel-header">
           <h2>CCPlay 요청</h2>
-          <div id="ccplayConnectionStatus" class="ccplay-connection-status">Firebase 연결 대기 중</div>
+          <div id="ccplayConnectionStatus" class="ccplay-connection-status">서버 연결 대기 중</div>
         </div>
 
         <div class="ccplay-panel-section">
           <div class="ccplay-panel-label">현재 재생</div>
           <div id="ccplayCurrentRequest" class="ccplay-current-request">현재 재생 중인 요청이 없습니다.</div>
           <button id="ccplaySkipButton" type="button" class="ccplay-action-button">현재 요청 스킵</button>
+        </div>
+
+        <div class="ccplay-panel-section">
+          <div class="ccplay-panel-label">호출 테스트</div>
+          <div id="ccplayWakePhrase" class="ccplay-wake-phrase">현재 호출어: 헤이 클로바</div>
+          <button id="ccplayWakeTestButton" type="button" class="ccplay-action-button secondary">
+            클로바 호출 테스트
+          </button>
         </div>
 
         <div class="ccplay-panel-section">

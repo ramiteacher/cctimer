@@ -11,7 +11,7 @@ const ROOT_DIR = __dirname;
 const QUEUE_DATA_FILE = path.join(ROOT_DIR, "queue-data.json");
 
 const EDGE_TTS_VOICE = process.env.EDGE_TTS_VOICE || "ko-KR-SunHiNeural";
-const EDGE_TTS_RATE = process.env.EDGE_TTS_RATE || "-8%";
+const EDGE_TTS_RATE = process.env.EDGE_TTS_RATE || "-18%";
 const EDGE_TTS_VOLUME = process.env.EDGE_TTS_VOLUME || "+100%";
 const EDGE_TTS_PITCH = process.env.EDGE_TTS_PITCH || "+0Hz";
 

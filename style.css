@@ -153,6 +153,13 @@ body {
   line-height: 1.5;
 }
 
+.ccplay-wake-phrase {
+  margin-bottom: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #d7dce2;
+}
+
 .ccplay-action-button {
   display: inline-flex;
   align-items: center;
