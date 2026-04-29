@@ -9,16 +9,16 @@ const ROOT_DIR = __dirname;
 const QUEUE_DATA_FILE = path.join(ROOT_DIR, "queue-data.json");
 
 const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || "";
-const GOOGLE_TTS_VOICE = process.env.GOOGLE_TTS_VOICE || "ko-KR-Neural2-A";
+const GOOGLE_TTS_VOICE = process.env.GOOGLE_TTS_VOICE || "ko-KR-Chirp3-HD-Kore";
 const GOOGLE_TTS_LANGUAGE_CODE = process.env.GOOGLE_TTS_LANGUAGE_CODE || "ko-KR";
 const GOOGLE_TTS_AUDIO_ENCODING = process.env.GOOGLE_TTS_AUDIO_ENCODING || "MP3";
 const GOOGLE_TTS_SPEAKING_RATE = process.env.GOOGLE_TTS_SPEAKING_RATE
   ? Number(process.env.GOOGLE_TTS_SPEAKING_RATE)
-  : 0.86;
-const GOOGLE_TTS_PITCH = process.env.GOOGLE_TTS_PITCH ? Number(process.env.GOOGLE_TTS_PITCH) : 1.5;
+  : 0.94;
+const GOOGLE_TTS_PITCH = process.env.GOOGLE_TTS_PITCH ? Number(process.env.GOOGLE_TTS_PITCH) : 0;
 const GOOGLE_TTS_VOLUME_GAIN_DB = process.env.GOOGLE_TTS_VOLUME_GAIN_DB
   ? Number(process.env.GOOGLE_TTS_VOLUME_GAIN_DB)
-  : 10;
+  : 6;
 
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
