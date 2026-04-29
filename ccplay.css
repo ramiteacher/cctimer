@@ -1,0 +1,200 @@
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top, rgba(47, 143, 65, 0.24), transparent 35%),
+    linear-gradient(180deg, #07110b 0%, #030504 100%);
+  color: #f7faf7;
+  font-family: "Segoe UI", sans-serif;
+}
+
+body {
+  min-height: 100vh;
+}
+
+.ccplay-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.ccplay-card {
+  width: min(720px, 100%);
+  padding: 36px;
+  border-radius: 28px;
+  background: rgba(7, 12, 9, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+}
+
+.ccplay-eyebrow {
+  color: #90d6a0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+h1 {
+  margin: 12px 0 10px;
+  font-size: clamp(34px, 6vw, 56px);
+  line-height: 1;
+}
+
+.ccplay-description {
+  margin: 0;
+  max-width: 580px;
+  color: rgba(247, 250, 247, 0.8);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.ccplay-form {
+  margin-top: 28px;
+}
+
+.ccplay-label {
+  display: block;
+  margin-bottom: 10px;
+  color: #a7b5a8;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ccplay-input-row {
+  display: flex;
+  gap: 12px;
+}
+
+.ccplay-input-row input {
+  flex: 1;
+  min-width: 0;
+  height: 56px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+  font-size: 18px;
+}
+
+.ccplay-input-row button,
+.ghost-button {
+  border: none;
+  border-radius: 16px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.ccplay-input-row button {
+  min-width: 148px;
+  padding: 0 20px;
+  background: linear-gradient(135deg, #2b9b4d 0%, #15723c 100%);
+  color: #fff;
+}
+
+.ccplay-status {
+  min-height: 24px;
+  margin-top: 16px;
+  color: #90d6a0;
+  font-size: 14px;
+}
+
+.ccplay-status.error {
+  color: #ff9a9a;
+}
+
+.ccplay-history {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ccplay-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ccplay-history-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.ghost-button {
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.ccplay-history-list {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ccplay-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ccplay-history-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccplay-history-use {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(144, 214, 160, 0.2);
+  color: #d9ffe0;
+  cursor: pointer;
+}
+
+.ccplay-empty {
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #a7b5a8;
+}
+
+@media (max-width: 720px) {
+  .ccplay-card {
+    padding: 24px;
+  }
+
+  .ccplay-input-row {
+    flex-direction: column;
+  }
+
+  .ccplay-input-row button {
+    min-width: 0;
+    height: 52px;
+  }
+
+  .ccplay-history-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .ccplay-history-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

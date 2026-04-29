@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CCPlay</title>
+  <link rel="stylesheet" href="ccplay.css" type="text/css">
+</head>
+<body>
+  <main class="ccplay-shell">
+    <section class="ccplay-card">
+      <div class="ccplay-eyebrow">CCPLAY REQUEST</div>
+      <h1>노래 요청 보내기</h1>
+      <p class="ccplay-description">
+        곡명을 입력하면 노트북에 열려 있는 CCTimer가
+        <strong>클로바, [곡명] 틀어줘</strong> 문구를 TTS로 재생합니다.
+      </p>
+
+      <form id="ccplayForm" class="ccplay-form">
+        <label for="songTitle" class="ccplay-label">곡명</label>
+        <div class="ccplay-input-row">
+          <input
+            id="songTitle"
+            name="songTitle"
+            type="text"
+            maxlength="100"
+            autocomplete="off"
+            placeholder="예: 여행을 떠나요"
+          >
+          <button type="submit" id="submitButton">요청 보내기</button>
+        </div>
+      </form>
+
+      <div id="statusMessage" class="ccplay-status"></div>
+
+      <section class="ccplay-history">
+        <div class="ccplay-history-header">
+          <h2>최근 요청</h2>
+          <button type="button" id="clearHistoryButton" class="ghost-button">기록 비우기</button>
+        </div>
+        <ul id="recentSongsList" class="ccplay-history-list">
+          <li class="ccplay-empty">아직 요청한 곡이 없습니다.</li>
+        </ul>
+      </section>
+    </section>
+  </main>
+
+  <script src="ws-config.js"></script>
+  <script src="ccplay.js"></script>
+</body>
+</html>
