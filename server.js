@@ -1,8 +1,6 @@
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
-const { spawn } = require("node:child_process");
 const { WebSocketServer } = require("ws");
 
 const HOST = "0.0.0.0";
@@ -10,10 +8,17 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 8123;
 const ROOT_DIR = __dirname;
 const QUEUE_DATA_FILE = path.join(ROOT_DIR, "queue-data.json");
 
-const EDGE_TTS_VOICE = process.env.EDGE_TTS_VOICE || "ko-KR-InJoonNeural";
-const EDGE_TTS_RATE = process.env.EDGE_TTS_RATE || "-10%";
-const EDGE_TTS_VOLUME = process.env.EDGE_TTS_VOLUME || "+100%";
-const EDGE_TTS_PITCH = process.env.EDGE_TTS_PITCH || "+0Hz";
+const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || "";
+const GOOGLE_TTS_VOICE = process.env.GOOGLE_TTS_VOICE || "ko-KR-Neural2-C";
+const GOOGLE_TTS_LANGUAGE_CODE = process.env.GOOGLE_TTS_LANGUAGE_CODE || "ko-KR";
+const GOOGLE_TTS_AUDIO_ENCODING = process.env.GOOGLE_TTS_AUDIO_ENCODING || "MP3";
+const GOOGLE_TTS_SPEAKING_RATE = process.env.GOOGLE_TTS_SPEAKING_RATE
+  ? Number(process.env.GOOGLE_TTS_SPEAKING_RATE)
+  : 0.9;
+const GOOGLE_TTS_PITCH = process.env.GOOGLE_TTS_PITCH ? Number(process.env.GOOGLE_TTS_PITCH) : 0;
+const GOOGLE_TTS_VOLUME_GAIN_DB = process.env.GOOGLE_TTS_VOLUME_GAIN_DB
+  ? Number(process.env.GOOGLE_TTS_VOLUME_GAIN_DB)
+  : 8;
 
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
@@ -248,8 +253,13 @@ async function handleTtsRequest(request, response) {
     return;
   }
 
+  if (!GOOGLE_TTS_API_KEY) {
+    sendJson(response, 503, { error: "서버에 Google TTS API 키가 설정되지 않았습니다." });
+    return;
+  }
+
   try {
-    const audioBuffer = await synthesizeEdgeTtsAudio(text);
+    const audioBuffer = await synthesizeGoogleTtsAudio(text);
     response.writeHead(200, {
       "Access-Control-Allow-Origin": "*",
       "Cache-Control": "no-store",
@@ -263,64 +273,56 @@ async function handleTtsRequest(request, response) {
   }
 }
 
-function runCommand(command, args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-
-    let stderr = "";
-
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-
-    child.on("error", (error) => {
-      reject(error);
-    });
-
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-        return;
+async function synthesizeGoogleTtsAudio(text) {
+  const response = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "x-goog-api-key": GOOGLE_TTS_API_KEY
+    },
+    body: JSON.stringify({
+      input: {
+        text: text
+      },
+      voice: {
+        languageCode: GOOGLE_TTS_LANGUAGE_CODE,
+        name: GOOGLE_TTS_VOICE
+      },
+      audioConfig: {
+        audioEncoding: GOOGLE_TTS_AUDIO_ENCODING,
+        speakingRate: GOOGLE_TTS_SPEAKING_RATE,
+        pitch: GOOGLE_TTS_PITCH,
+        volumeGainDb: GOOGLE_TTS_VOLUME_GAIN_DB
       }
-
-      reject(new Error(stderr.trim() || "edge-tts 실행에 실패했습니다."));
-    });
+    })
   });
-}
 
-async function synthesizeEdgeTtsAudio(text) {
-  const tempFilePath = path.join(
-    os.tmpdir(),
-    "ccplay-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8) + ".mp3"
-  );
+  if (!response.ok) {
+    const rawError = await response.text();
+    let upstreamMessage = "Google TTS 음성 생성에 실패했습니다.";
 
-  try {
-    await runCommand("edge-tts", [
-      "--voice",
-      EDGE_TTS_VOICE,
-      "--rate=" + EDGE_TTS_RATE,
-      "--volume=" + EDGE_TTS_VOLUME,
-      "--pitch=" + EDGE_TTS_PITCH,
-      "--text",
-      text,
-      "--write-media",
-      tempFilePath
-    ]);
-
-    return fs.readFileSync(tempFilePath);
-  } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      throw new Error("edge-tts가 서버에 설치되지 않았습니다.");
+    try {
+      const parsedError = JSON.parse(rawError);
+      if (parsedError && parsedError.error && parsedError.error.message) {
+        upstreamMessage = String(parsedError.error.message);
+      } else if (parsedError && parsedError.message) {
+        upstreamMessage = String(parsedError.message);
+      }
+    } catch (error) {
+      if (rawError) {
+        upstreamMessage = rawError;
+      }
     }
 
-    throw error;
-  } finally {
-    if (fs.existsSync(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
-    }
+    throw new Error(upstreamMessage);
   }
+
+  const payload = await response.json();
+  if (!payload || typeof payload.audioContent !== "string" || payload.audioContent.trim() === "") {
+    throw new Error("Google TTS 응답에 audioContent가 없습니다.");
+  }
+
+  return Buffer.from(payload.audioContent, "base64");
 }
 
 const server = http.createServer((request, response) => {
@@ -329,8 +331,9 @@ const server = http.createServer((request, response) => {
   if (requestUrl.pathname === "/health") {
     sendJson(response, 200, {
       ok: true,
-      ttsProvider: "edge-tts",
-      edgeVoice: EDGE_TTS_VOICE,
+      ttsProvider: "google-cloud-tts",
+      hasGoogleTtsApiKey: Boolean(GOOGLE_TTS_API_KEY),
+      googleTtsVoice: GOOGLE_TTS_VOICE,
       queueSize: getQueuedRequests().length
     });
     return;
