@@ -11,7 +11,7 @@ const QUEUE_DATA_FILE = path.join(ROOT_DIR, "queue-data.json");
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb";
 const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2";
-const ELEVENLABS_OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT || "mp3_44100_128";
+const ELEVENLABS_OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT || "mp3_22050_32";
 const ELEVENLABS_LANGUAGE_CODE = process.env.ELEVENLABS_LANGUAGE_CODE || "ko";
 
 const MIME_TYPES = {
@@ -282,7 +282,25 @@ async function handleTtsRequest(request, response) {
     if (!elevenResponse.ok) {
       const errorText = await elevenResponse.text();
       console.error("ElevenLabs TTS 오류:", errorText);
-      sendJson(response, 502, { error: "ElevenLabs 음성 생성에 실패했습니다." });
+
+      let upstreamMessage = "ElevenLabs 음성 생성에 실패했습니다.";
+
+      try {
+        const parsedError = JSON.parse(errorText);
+        if (parsedError && typeof parsedError.detail === "object" && parsedError.detail && parsedError.detail.message) {
+          upstreamMessage = String(parsedError.detail.message);
+        } else if (parsedError && typeof parsedError.detail === "string") {
+          upstreamMessage = parsedError.detail;
+        } else if (parsedError && parsedError.message) {
+          upstreamMessage = String(parsedError.message);
+        }
+      } catch (error) {
+        if (errorText) {
+          upstreamMessage = errorText;
+        }
+      }
+
+      sendJson(response, 502, { error: upstreamMessage });
       return;
     }
 
