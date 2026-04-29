@@ -22,6 +22,10 @@ let ccplaySpeechInterrupted = false;
 let ccplayConnectionMessage = "서버 연결 대기 중";
 let ccplayLastError = "";
 
+const CCPLAY_TTS_RATE = 0.82;
+const CCPLAY_TTS_PITCH = 0.9;
+const CCPLAY_TTS_VOLUME = 1;
+
 const standardSchedule = [
   { time: "10:50", type: "rest", message: "지금은 쉬는시간 입니다." },
   { time: "11:00", type: "work", message: "지금은 근무시간 입니다." },
@@ -99,10 +103,45 @@ function updatePreferredSpeechVoice() {
   }
 
   const voices = window.speechSynthesis.getVoices();
-  preferredSpeechVoice =
-    voices.find((voice) => voice.lang && voice.lang.toLowerCase().startsWith("ko")) ||
-    voices.find((voice) => /korean/i.test(voice.name || "")) ||
-    null;
+  const scoredVoices = voices
+    .map(function (voice) {
+      const name = (voice.name || "").toLowerCase();
+      const lang = (voice.lang || "").toLowerCase();
+      let score = 0;
+
+      if (lang.startsWith("ko")) {
+        score += 100;
+      }
+
+      if (name.includes("korean")) {
+        score += 80;
+      }
+
+      if (name.includes("microsoft")) {
+        score += 25;
+      }
+
+      if (name.includes("google")) {
+        score += 20;
+      }
+
+      if (name.includes("female")) {
+        score += 5;
+      }
+
+      return {
+        voice: voice,
+        score: score
+      };
+    })
+    .filter(function (item) {
+      return item.score > 0;
+    })
+    .sort(function (left, right) {
+      return right.score - left.score;
+    });
+
+  preferredSpeechVoice = scoredVoices.length > 0 ? scoredVoices[0].voice : null;
 }
 
 function dpTime() {
@@ -537,6 +576,10 @@ function speakActiveCcplayRequest() {
   } else {
     utterance.lang = "ko-KR";
   }
+
+  utterance.rate = CCPLAY_TTS_RATE;
+  utterance.pitch = CCPLAY_TTS_PITCH;
+  utterance.volume = CCPLAY_TTS_VOLUME;
 
   currentSpeechUtterance = utterance;
   speechCancelReason = null;
