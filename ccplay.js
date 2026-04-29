@@ -15,7 +15,11 @@ let reconnectTimer = null;
 let wakeTestAudio = null;
 let wakeTestObjectUrl = null;
 
-const CCPLAY_WAKE_PHRASE = "헤이 클로바";
+const CCPLAY_WAKE_PHRASE = "헤이, 클로바";
+
+function buildWakeWordSsml() {
+  return "<speak><break time=\"120ms\"/>" + CCPLAY_WAKE_PHRASE + "<break time=\"260ms\"/></speak>";
+}
 
 function getWebSocketUrl() {
   if (window.CCPLAY_WS_URL && typeof window.CCPLAY_WS_URL === "string" && window.CCPLAY_WS_URL.trim() !== "") {
@@ -253,7 +257,10 @@ async function playWakeWordTest() {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ text: CCPLAY_WAKE_PHRASE })
+      body: JSON.stringify({
+        text: CCPLAY_WAKE_PHRASE,
+        ssml: buildWakeWordSsml()
+      })
     });
 
     if (!response.ok) {

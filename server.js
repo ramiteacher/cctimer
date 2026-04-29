@@ -9,16 +9,16 @@ const ROOT_DIR = __dirname;
 const QUEUE_DATA_FILE = path.join(ROOT_DIR, "queue-data.json");
 
 const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || "";
-const GOOGLE_TTS_VOICE = process.env.GOOGLE_TTS_VOICE || "ko-KR-Neural2-C";
+const GOOGLE_TTS_VOICE = process.env.GOOGLE_TTS_VOICE || "ko-KR-Neural2-A";
 const GOOGLE_TTS_LANGUAGE_CODE = process.env.GOOGLE_TTS_LANGUAGE_CODE || "ko-KR";
 const GOOGLE_TTS_AUDIO_ENCODING = process.env.GOOGLE_TTS_AUDIO_ENCODING || "MP3";
 const GOOGLE_TTS_SPEAKING_RATE = process.env.GOOGLE_TTS_SPEAKING_RATE
   ? Number(process.env.GOOGLE_TTS_SPEAKING_RATE)
-  : 0.9;
-const GOOGLE_TTS_PITCH = process.env.GOOGLE_TTS_PITCH ? Number(process.env.GOOGLE_TTS_PITCH) : 0;
+  : 0.86;
+const GOOGLE_TTS_PITCH = process.env.GOOGLE_TTS_PITCH ? Number(process.env.GOOGLE_TTS_PITCH) : 1.5;
 const GOOGLE_TTS_VOLUME_GAIN_DB = process.env.GOOGLE_TTS_VOLUME_GAIN_DB
   ? Number(process.env.GOOGLE_TTS_VOLUME_GAIN_DB)
-  : 8;
+  : 10;
 
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
@@ -243,12 +243,13 @@ async function handleTtsRequest(request, response) {
   }
 
   const text = typeof payload.text === "string" ? payload.text.trim() : "";
-  if (!text) {
+  const ssml = typeof payload.ssml === "string" ? payload.ssml.trim() : "";
+  if (!text && !ssml) {
     sendJson(response, 400, { error: "TTS로 변환할 텍스트가 비어 있습니다." });
     return;
   }
 
-  if (text.length > 200) {
+  if (text.length > 200 || ssml.length > 600) {
     sendJson(response, 400, { error: "TTS 텍스트가 너무 깁니다." });
     return;
   }
@@ -259,7 +260,7 @@ async function handleTtsRequest(request, response) {
   }
 
   try {
-    const audioBuffer = await synthesizeGoogleTtsAudio(text);
+    const audioBuffer = await synthesizeGoogleTtsAudio({ text: text, ssml: ssml });
     response.writeHead(200, {
       "Access-Control-Allow-Origin": "*",
       "Cache-Control": "no-store",
@@ -273,7 +274,11 @@ async function handleTtsRequest(request, response) {
   }
 }
 
-async function synthesizeGoogleTtsAudio(text) {
+async function synthesizeGoogleTtsAudio(inputPayload) {
+  const synthesisInput = inputPayload.ssml
+    ? { ssml: inputPayload.ssml }
+    : { text: inputPayload.text };
+
   const response = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize", {
     method: "POST",
     headers: {
@@ -281,9 +286,7 @@ async function synthesizeGoogleTtsAudio(text) {
       "x-goog-api-key": GOOGLE_TTS_API_KEY
     },
     body: JSON.stringify({
-      input: {
-        text: text
-      },
+      input: synthesisInput,
       voice: {
         languageCode: GOOGLE_TTS_LANGUAGE_CODE,
         name: GOOGLE_TTS_VOICE

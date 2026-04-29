@@ -27,7 +27,7 @@ let ttsGainNode = null;
 let ttsPlaybackToken = 0;
 
 const TTS_GAIN_MULTIPLIER = 2.8;
-const CCPLAY_WAKE_PHRASE = "헤이 클로바";
+const CCPLAY_WAKE_PHRASE = "헤이, 클로바";
 
 const standardSchedule = [
   { time: "10:50", type: "rest", message: "지금은 쉬는시간 입니다." },
@@ -91,6 +91,32 @@ function getAudioContextConstructor() {
 
 function buildCcplaySpeechText(songTitle) {
   return CCPLAY_WAKE_PHRASE + ". " + songTitle + " 틀어줘.";
+}
+
+function escapeForSsml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function buildWakeWordSsml() {
+  return "<speak><break time=\"120ms\"/>" + CCPLAY_WAKE_PHRASE + "<break time=\"260ms\"/></speak>";
+}
+
+function buildCcplaySpeechSsml(songTitle) {
+  return (
+    "<speak>" +
+    "<break time=\"120ms\"/>" +
+    CCPLAY_WAKE_PHRASE +
+    "<break time=\"320ms\"/>" +
+    escapeForSsml(songTitle) +
+    " 틀어줘." +
+    "<break time=\"150ms\"/>" +
+    "</speak>"
+  );
 }
 
 function getActiveClock() {
@@ -568,7 +594,7 @@ function maybeProcessCcplayQueue() {
   sendSocketMessage({ type: "claimNext" });
 }
 
-async function fetchTtsAudioBlob(text, token) {
+async function fetchTtsAudioBlob(options, token) {
   const controller = new AbortController();
   currentTtsFetchController = controller;
 
@@ -578,7 +604,7 @@ async function fetchTtsAudioBlob(text, token) {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ text: text }),
+      body: JSON.stringify(options),
       signal: controller.signal
     });
 
@@ -653,6 +679,7 @@ async function speakActiveCcplayRequest() {
 
   const requestId = activeCcplayRequest.id;
   const speechText = buildCcplaySpeechText(activeCcplayRequest.songTitle);
+  const speechSsml = buildCcplaySpeechSsml(activeCcplayRequest.songTitle);
   const token = ttsPlaybackToken + 1;
 
   ttsPlaybackToken = token;
@@ -662,7 +689,7 @@ async function speakActiveCcplayRequest() {
   renderCcplayPanel();
 
   try {
-    const audioBlob = await fetchTtsAudioBlob(speechText, token);
+    const audioBlob = await fetchTtsAudioBlob({ text: speechText, ssml: speechSsml }, token);
 
     if (token !== ttsPlaybackToken || !activeCcplayRequest || activeCcplayRequest.id !== requestId) {
       return;
