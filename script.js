@@ -8,9 +8,6 @@ let currentAudio = null;
 let currentBellAudio = null;
 let timerAudioActive = false;
 let ccplaySpeechActive = false;
-let preferredSpeechVoice = null;
-let currentSpeechUtterance = null;
-let speechCancelReason = null;
 
 let socket = null;
 let socketConnected = false;
@@ -22,9 +19,14 @@ let ccplaySpeechInterrupted = false;
 let ccplayConnectionMessage = "서버 연결 대기 중";
 let ccplayLastError = "";
 
-const CCPLAY_TTS_RATE = 0.82;
-const CCPLAY_TTS_PITCH = 0.9;
-const CCPLAY_TTS_VOLUME = 1;
+let currentTtsAudio = null;
+let currentTtsObjectUrl = null;
+let currentTtsFetchController = null;
+let ttsAudioContext = null;
+let ttsGainNode = null;
+let ttsPlaybackToken = 0;
+
+const TTS_GAIN_MULTIPLIER = 2.8;
 
 const standardSchedule = [
   { time: "10:50", type: "rest", message: "지금은 쉬는시간 입니다." },
@@ -76,72 +78,21 @@ function getWebSocketUrl() {
   return protocol + "//" + window.location.host;
 }
 
+function getApiBaseUrl() {
+  const socketUrl = new URL(getWebSocketUrl());
+  socketUrl.protocol = socketUrl.protocol === "wss:" ? "https:" : "http:";
+  return socketUrl.origin;
+}
+
+function getAudioContextConstructor() {
+  return window.AudioContext || window.webkitAudioContext || null;
+}
+
 function getActiveClock() {
   if (debugMode && debugTime) {
     return debugTime;
   }
   return new Date();
-}
-
-function initializeSpeechVoices() {
-  if (!("speechSynthesis" in window)) {
-    return;
-  }
-
-  updatePreferredSpeechVoice();
-
-  if (typeof window.speechSynthesis.addEventListener === "function") {
-    window.speechSynthesis.addEventListener("voiceschanged", updatePreferredSpeechVoice);
-  } else {
-    window.speechSynthesis.onvoiceschanged = updatePreferredSpeechVoice;
-  }
-}
-
-function updatePreferredSpeechVoice() {
-  if (!("speechSynthesis" in window)) {
-    return;
-  }
-
-  const voices = window.speechSynthesis.getVoices();
-  const scoredVoices = voices
-    .map(function (voice) {
-      const name = (voice.name || "").toLowerCase();
-      const lang = (voice.lang || "").toLowerCase();
-      let score = 0;
-
-      if (lang.startsWith("ko")) {
-        score += 100;
-      }
-
-      if (name.includes("korean")) {
-        score += 80;
-      }
-
-      if (name.includes("microsoft")) {
-        score += 25;
-      }
-
-      if (name.includes("google")) {
-        score += 20;
-      }
-
-      if (name.includes("female")) {
-        score += 5;
-      }
-
-      return {
-        voice: voice,
-        score: score
-      };
-    })
-    .filter(function (item) {
-      return item.score > 0;
-    })
-    .sort(function (left, right) {
-      return right.score - left.score;
-    });
-
-  preferredSpeechVoice = scoredVoices.length > 0 ? scoredVoices[0].voice : null;
 }
 
 function dpTime() {
@@ -287,7 +238,6 @@ function startTimerAudioSession() {
 function audioctrl(type) {
   stopTimerAudioElements();
   timerAudioActive = true;
-
   currentAudio = new Audio(resolveScheduleAudioFile(type));
 
   currentAudio.addEventListener("ended", function () {
@@ -402,8 +352,8 @@ function updateNextSchedule(schedule, currentTime) {
     : "오늘 스케줄 완료";
 }
 
-function supportsSpeechSynthesis() {
-  return "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+function supportsTtsPlayback() {
+  return typeof window.fetch === "function" && typeof window.Audio === "function";
 }
 
 function escapeHtml(text) {
@@ -423,6 +373,60 @@ function setCcplayError(message) {
 function clearCcplayError() {
   ccplayLastError = "";
   renderCcplayPanel();
+}
+
+function revokeCurrentTtsObjectUrl() {
+  if (currentTtsObjectUrl) {
+    URL.revokeObjectURL(currentTtsObjectUrl);
+    currentTtsObjectUrl = null;
+  }
+}
+
+function clearCurrentTtsAudio() {
+  if (currentTtsAudio) {
+    currentTtsAudio.pause();
+    currentTtsAudio.src = "";
+    currentTtsAudio = null;
+  }
+
+  revokeCurrentTtsObjectUrl();
+}
+
+function abortCurrentTtsFetch() {
+  if (currentTtsFetchController) {
+    currentTtsFetchController.abort();
+    currentTtsFetchController = null;
+  }
+}
+
+async function ensureAmplifiedTtsPlayback(audio) {
+  const AudioContextCtor = getAudioContextConstructor();
+  if (!AudioContextCtor) {
+    return;
+  }
+
+  if (!ttsAudioContext) {
+    ttsAudioContext = new AudioContextCtor();
+  }
+
+  if (!ttsGainNode) {
+    ttsGainNode = ttsAudioContext.createGain();
+    ttsGainNode.gain.value = TTS_GAIN_MULTIPLIER;
+    ttsGainNode.connect(ttsAudioContext.destination);
+  }
+
+  if (ttsAudioContext.state === "suspended") {
+    await ttsAudioContext.resume();
+  }
+
+  const sourceNode = ttsAudioContext.createMediaElementSource(audio);
+  sourceNode.connect(ttsGainNode);
+}
+
+function cleanupCurrentTtsPlayback() {
+  abortCurrentTtsFetch();
+  clearCurrentTtsAudio();
+  ccplaySpeechActive = false;
 }
 
 function sendSocketMessage(payload) {
@@ -535,8 +539,8 @@ function maybeProcessCcplayQueue() {
     return;
   }
 
-  if (!supportsSpeechSynthesis()) {
-    setCcplayError("이 브라우저는 TTS를 지원하지 않습니다.");
+  if (!supportsTtsPlayback()) {
+    setCcplayError("이 브라우저는 오디오 재생을 지원하지 않습니다.");
     return;
   }
 
@@ -559,77 +563,121 @@ function maybeProcessCcplayQueue() {
   sendSocketMessage({ type: "claimNext" });
 }
 
-function speakActiveCcplayRequest() {
-  if (!activeCcplayRequest || timerAudioActive || ccplaySpeechActive || !supportsSpeechSynthesis()) {
-    return;
+async function fetchTtsAudioBlob(text, token) {
+  const controller = new AbortController();
+  currentTtsFetchController = controller;
+
+  try {
+    const response = await fetch(getApiBaseUrl() + "/api/tts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ text: text }),
+      signal: controller.signal
+    });
+
+    if (token !== ttsPlaybackToken) {
+      throw new DOMException("stale", "AbortError");
+    }
+
+    if (!response.ok) {
+      let errorMessage = "TTS 생성에 실패했습니다.";
+      try {
+        const errorPayload = await response.json();
+        if (errorPayload && errorPayload.error) {
+          errorMessage = errorPayload.error;
+        }
+      } catch (error) {
+        const rawText = await response.text();
+        if (rawText) {
+          errorMessage = rawText;
+        }
+      }
+
+      throw new Error(errorMessage);
+    }
+
+    return await response.blob();
+  } finally {
+    if (currentTtsFetchController === controller) {
+      currentTtsFetchController = null;
+    }
   }
-
-  updatePreferredSpeechVoice();
-
-  const utterance = new SpeechSynthesisUtterance(
-    "클로바, " + activeCcplayRequest.songTitle + " 틀어줘"
-  );
-
-  if (preferredSpeechVoice) {
-    utterance.voice = preferredSpeechVoice;
-    utterance.lang = preferredSpeechVoice.lang;
-  } else {
-    utterance.lang = "ko-KR";
-  }
-
-  utterance.rate = CCPLAY_TTS_RATE;
-  utterance.pitch = CCPLAY_TTS_PITCH;
-  utterance.volume = CCPLAY_TTS_VOLUME;
-
-  currentSpeechUtterance = utterance;
-  speechCancelReason = null;
-  ccplaySpeechActive = true;
-  ccplaySpeechInterrupted = false;
-  renderCcplayPanel();
-
-  const requestId = activeCcplayRequest.id;
-
-  utterance.addEventListener("end", function () {
-    handleSpeechCompletion(requestId, null);
-  });
-
-  utterance.addEventListener("error", function (event) {
-    handleSpeechCompletion(requestId, event);
-  });
-
-  window.speechSynthesis.speak(utterance);
 }
 
-function handleSpeechCompletion(requestId, errorEvent) {
-  if (!activeCcplayRequest || activeCcplayRequest.id !== requestId) {
-    currentSpeechUtterance = null;
+async function playTtsBlob(blob, token, requestId) {
+  clearCurrentTtsAudio();
+
+  currentTtsObjectUrl = URL.createObjectURL(blob);
+  const audio = new Audio(currentTtsObjectUrl);
+  audio.preload = "auto";
+  audio.volume = 1;
+  currentTtsAudio = audio;
+
+  await ensureAmplifiedTtsPlayback(audio);
+
+  audio.addEventListener("ended", function () {
+    if (token !== ttsPlaybackToken || !activeCcplayRequest || activeCcplayRequest.id !== requestId) {
+      return;
+    }
+
+    clearCurrentTtsAudio();
     ccplaySpeechActive = false;
-    return;
-  }
+    finalizeActiveCcplayRequest("done");
+  });
 
-  currentSpeechUtterance = null;
-  ccplaySpeechActive = false;
-  const cancelReason = speechCancelReason;
-  speechCancelReason = null;
+  audio.addEventListener("error", function () {
+    if (token !== ttsPlaybackToken || !activeCcplayRequest || activeCcplayRequest.id !== requestId) {
+      return;
+    }
 
-  if (cancelReason === "timer") {
-    ccplaySpeechInterrupted = true;
-    renderCcplayPanel();
-    return;
-  }
-
-  if (cancelReason === "skip") {
+    clearCurrentTtsAudio();
+    ccplaySpeechActive = false;
+    setCcplayError("TTS 오디오 재생에 실패했습니다.");
     finalizeActiveCcplayRequest("cancelled");
+  });
+
+  await audio.play();
+}
+
+async function speakActiveCcplayRequest() {
+  if (!activeCcplayRequest || timerAudioActive || ccplaySpeechActive || !supportsTtsPlayback()) {
     return;
   }
 
-  if (errorEvent && errorEvent.error && errorEvent.error !== "interrupted" && errorEvent.error !== "canceled") {
-    setCcplayError("TTS 재생 중 오류가 발생했습니다.");
+  const requestId = activeCcplayRequest.id;
+  const speechText = "클로바, " + activeCcplayRequest.songTitle + " 틀어줘";
+  const token = ttsPlaybackToken + 1;
+
+  ttsPlaybackToken = token;
+  ccplaySpeechActive = true;
+  ccplaySpeechInterrupted = false;
+  clearCcplayError();
+  renderCcplayPanel();
+
+  try {
+    const audioBlob = await fetchTtsAudioBlob(speechText, token);
+
+    if (token !== ttsPlaybackToken || !activeCcplayRequest || activeCcplayRequest.id !== requestId) {
+      return;
+    }
+
+    await playTtsBlob(audioBlob, token, requestId);
+  } catch (error) {
+    if (token !== ttsPlaybackToken) {
+      return;
+    }
+
+    cleanupCurrentTtsPlayback();
+
+    if (error && error.name === "AbortError") {
+      return;
+    }
+
+    setCcplayError(error && error.message ? error.message : "TTS 생성에 실패했습니다.");
     finalizeActiveCcplayRequest("cancelled");
-    return;
   }
-
-  finalizeActiveCcplayRequest("done");
 }
 
 function finalizeActiveCcplayRequest(status) {
@@ -651,12 +699,10 @@ function interruptCcplaySpeechForTimer() {
     return;
   }
 
-  if (ccplaySpeechActive && currentSpeechUtterance && supportsSpeechSynthesis()) {
-    speechCancelReason = "timer";
-    window.speechSynthesis.cancel();
-  } else {
-    ccplaySpeechInterrupted = true;
-  }
+  ttsPlaybackToken += 1;
+  cleanupCurrentTtsPlayback();
+  ccplaySpeechInterrupted = true;
+  renderCcplayPanel();
 }
 
 function skipActiveCcplayRequest() {
@@ -664,12 +710,9 @@ function skipActiveCcplayRequest() {
     return;
   }
 
-  if (ccplaySpeechActive && currentSpeechUtterance && supportsSpeechSynthesis()) {
-    speechCancelReason = "skip";
-    window.speechSynthesis.cancel();
-  } else {
-    finalizeActiveCcplayRequest("cancelled");
-  }
+  ttsPlaybackToken += 1;
+  cleanupCurrentTtsPlayback();
+  finalizeActiveCcplayRequest("cancelled");
 }
 
 function clearCcplayQueue() {
@@ -738,7 +781,6 @@ function renderCcplayPanel() {
 
 function initializeCcplayPanel() {
   renderCcplayPanel();
-  initializeSpeechVoices();
   connectSocket();
 
   const queueElement = document.getElementById("ccplayQueueList");

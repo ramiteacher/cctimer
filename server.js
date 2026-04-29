@@ -8,6 +8,12 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 8123;
 const ROOT_DIR = __dirname;
 const QUEUE_DATA_FILE = path.join(ROOT_DIR, "queue-data.json");
 
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb";
+const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2";
+const ELEVENLABS_OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT || "mp3_44100_128";
+const ELEVENLABS_LANGUAGE_CODE = process.env.ELEVENLABS_LANGUAGE_CODE || "ko";
+
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -50,7 +56,6 @@ function loadQueueState() {
 function saveQueueState() {
   const prunedState = pruneCompletedHistory(queueState);
   queueState = prunedState;
-
   fs.writeFileSync(QUEUE_DATA_FILE, JSON.stringify(prunedState, null, 2), "utf8");
 }
 
@@ -123,6 +128,23 @@ function sendError(socket, message) {
   socket.send(JSON.stringify({ type: "error", message }));
 }
 
+function sendJson(response, statusCode, payload, extraHeaders) {
+  response.writeHead(
+    statusCode,
+    Object.assign(
+      {
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      extraHeaders || {}
+    )
+  );
+  response.end(JSON.stringify(payload));
+}
+
 function markRequestStatus(requestId, status) {
   const target = queueState.find((item) => item.id === requestId);
   if (!target) {
@@ -167,8 +189,135 @@ function requeueSpeakingRequests() {
   }
 }
 
+function collectRequestBody(request) {
+  return new Promise((resolve, reject) => {
+    let rawBody = "";
+
+    request.on("data", (chunk) => {
+      rawBody += chunk;
+      if (rawBody.length > 32768) {
+        reject(new Error("요청 본문이 너무 큽니다."));
+        request.destroy();
+      }
+    });
+
+    request.on("end", () => {
+      resolve(rawBody);
+    });
+
+    request.on("error", reject);
+  });
+}
+
+async function handleTtsRequest(request, response) {
+  if (request.method === "OPTIONS") {
+    response.writeHead(204, {
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "no-store"
+    });
+    response.end();
+    return;
+  }
+
+  if (request.method !== "POST") {
+    sendJson(response, 405, { error: "POST 요청만 허용됩니다." });
+    return;
+  }
+
+  if (!ELEVENLABS_API_KEY) {
+    sendJson(response, 503, { error: "서버에 ElevenLabs API 키가 설정되지 않았습니다." });
+    return;
+  }
+
+  let payload;
+
+  try {
+    const rawBody = await collectRequestBody(request);
+    payload = JSON.parse(rawBody || "{}");
+  } catch (error) {
+    sendJson(response, 400, { error: "잘못된 JSON 요청입니다." });
+    return;
+  }
+
+  const text = typeof payload.text === "string" ? payload.text.trim() : "";
+  if (!text) {
+    sendJson(response, 400, { error: "TTS로 변환할 텍스트가 비어 있습니다." });
+    return;
+  }
+
+  if (text.length > 200) {
+    sendJson(response, 400, { error: "TTS 텍스트가 너무 깁니다." });
+    return;
+  }
+
+  try {
+    const elevenResponse = await fetch(
+      "https://api.elevenlabs.io/v1/text-to-speech/" +
+        encodeURIComponent(ELEVENLABS_VOICE_ID) +
+        "?output_format=" +
+        encodeURIComponent(ELEVENLABS_OUTPUT_FORMAT),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "xi-api-key": ELEVENLABS_API_KEY
+        },
+        body: JSON.stringify({
+          text: text,
+          model_id: ELEVENLABS_MODEL_ID,
+          language_code: ELEVENLABS_LANGUAGE_CODE,
+          voice_settings: {
+            stability: 0.45,
+            similarity_boost: 0.75,
+            style: 0.2,
+            use_speaker_boost: true,
+            speed: 0.95
+          }
+        })
+      }
+    );
+
+    if (!elevenResponse.ok) {
+      const errorText = await elevenResponse.text();
+      console.error("ElevenLabs TTS 오류:", errorText);
+      sendJson(response, 502, { error: "ElevenLabs 음성 생성에 실패했습니다." });
+      return;
+    }
+
+    const audioBuffer = Buffer.from(await elevenResponse.arrayBuffer());
+    response.writeHead(200, {
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "no-store",
+      "Content-Type": "audio/mpeg",
+      "Content-Length": String(audioBuffer.length)
+    });
+    response.end(audioBuffer);
+  } catch (error) {
+    console.error("TTS 프록시 실패:", error);
+    sendJson(response, 500, { error: "TTS 프록시 서버에서 오류가 발생했습니다." });
+  }
+}
+
 const server = http.createServer((request, response) => {
-  const requestPath = request.url === "/" ? "/index.html" : decodeURIComponent((request.url || "").split("?")[0]);
+  const requestUrl = new URL(request.url || "/", "http://localhost");
+
+  if (requestUrl.pathname === "/health") {
+    sendJson(response, 200, {
+      ok: true,
+      hasElevenLabsKey: Boolean(ELEVENLABS_API_KEY),
+      queueSize: getQueuedRequests().length
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/tts") {
+    handleTtsRequest(request, response);
+    return;
+  }
+
+  const requestPath = requestUrl.pathname === "/" ? "/index.html" : decodeURIComponent(requestUrl.pathname);
   const normalizedPath = path.normalize(requestPath).replace(/^(\.\.[\\/])+/, "");
   const resolvedPath = path.join(ROOT_DIR, normalizedPath);
 
@@ -189,8 +338,8 @@ const server = http.createServer((request, response) => {
 
     const extension = path.extname(resolvedPath).toLowerCase();
     response.writeHead(200, {
-      "Content-Type": MIME_TYPES[extension] || "application/octet-stream",
-      "Cache-Control": "no-cache"
+      "Cache-Control": "no-cache",
+      "Content-Type": MIME_TYPES[extension] || "application/octet-stream"
     });
     response.end(data);
   });
@@ -226,7 +375,7 @@ webSocketServer.on("connection", (socket) => {
 
         const requestItem = {
           id: createRequestId(),
-          songTitle,
+          songTitle: songTitle,
           requestedAt: Date.now(),
           status: "queued"
         };
