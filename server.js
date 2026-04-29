@@ -1,6 +1,8 @@
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
+const { spawn } = require("node:child_process");
 const { WebSocketServer } = require("ws");
 
 const HOST = "0.0.0.0";
@@ -8,11 +10,10 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 8123;
 const ROOT_DIR = __dirname;
 const QUEUE_DATA_FILE = path.join(ROOT_DIR, "queue-data.json");
 
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
-const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb";
-const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_multilingual_v2";
-const ELEVENLABS_OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT || "mp3_22050_32";
-const ELEVENLABS_LANGUAGE_CODE = process.env.ELEVENLABS_LANGUAGE_CODE || "ko";
+const EDGE_TTS_VOICE = process.env.EDGE_TTS_VOICE || "ko-KR-SunHiNeural";
+const EDGE_TTS_RATE = process.env.EDGE_TTS_RATE || "-8%";
+const EDGE_TTS_VOLUME = process.env.EDGE_TTS_VOLUME || "+100%";
+const EDGE_TTS_PITCH = process.env.EDGE_TTS_PITCH || "+0Hz";
 
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
@@ -226,11 +227,6 @@ async function handleTtsRequest(request, response) {
     return;
   }
 
-  if (!ELEVENLABS_API_KEY) {
-    sendJson(response, 503, { error: "서버에 ElevenLabs API 키가 설정되지 않았습니다." });
-    return;
-  }
-
   let payload;
 
   try {
@@ -253,58 +249,7 @@ async function handleTtsRequest(request, response) {
   }
 
   try {
-    const elevenResponse = await fetch(
-      "https://api.elevenlabs.io/v1/text-to-speech/" +
-        encodeURIComponent(ELEVENLABS_VOICE_ID) +
-        "?output_format=" +
-        encodeURIComponent(ELEVENLABS_OUTPUT_FORMAT),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "xi-api-key": ELEVENLABS_API_KEY
-        },
-        body: JSON.stringify({
-          text: text,
-          model_id: ELEVENLABS_MODEL_ID,
-          language_code: ELEVENLABS_LANGUAGE_CODE,
-          voice_settings: {
-            stability: 0.45,
-            similarity_boost: 0.75,
-            style: 0.2,
-            use_speaker_boost: true,
-            speed: 0.95
-          }
-        })
-      }
-    );
-
-    if (!elevenResponse.ok) {
-      const errorText = await elevenResponse.text();
-      console.error("ElevenLabs TTS 오류:", errorText);
-
-      let upstreamMessage = "ElevenLabs 음성 생성에 실패했습니다.";
-
-      try {
-        const parsedError = JSON.parse(errorText);
-        if (parsedError && typeof parsedError.detail === "object" && parsedError.detail && parsedError.detail.message) {
-          upstreamMessage = String(parsedError.detail.message);
-        } else if (parsedError && typeof parsedError.detail === "string") {
-          upstreamMessage = parsedError.detail;
-        } else if (parsedError && parsedError.message) {
-          upstreamMessage = String(parsedError.message);
-        }
-      } catch (error) {
-        if (errorText) {
-          upstreamMessage = errorText;
-        }
-      }
-
-      sendJson(response, 502, { error: upstreamMessage });
-      return;
-    }
-
-    const audioBuffer = Buffer.from(await elevenResponse.arrayBuffer());
+    const audioBuffer = await synthesizeEdgeTtsAudio(text);
     response.writeHead(200, {
       "Access-Control-Allow-Origin": "*",
       "Cache-Control": "no-store",
@@ -314,7 +259,70 @@ async function handleTtsRequest(request, response) {
     response.end(audioBuffer);
   } catch (error) {
     console.error("TTS 프록시 실패:", error);
-    sendJson(response, 500, { error: "TTS 프록시 서버에서 오류가 발생했습니다." });
+    sendJson(response, 502, { error: error instanceof Error ? error.message : "TTS 프록시 서버에서 오류가 발생했습니다." });
+  }
+}
+
+function runCommand(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    let stderr = "";
+
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+
+    child.on("error", (error) => {
+      reject(error);
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(stderr.trim() || "edge-tts 실행에 실패했습니다."));
+    });
+  });
+}
+
+async function synthesizeEdgeTtsAudio(text) {
+  const tempFilePath = path.join(
+    os.tmpdir(),
+    "ccplay-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8) + ".mp3"
+  );
+
+  try {
+    await runCommand("edge-tts", [
+      "--voice",
+      EDGE_TTS_VOICE,
+      "--rate",
+      EDGE_TTS_RATE,
+      "--volume",
+      EDGE_TTS_VOLUME,
+      "--pitch",
+      EDGE_TTS_PITCH,
+      "--text",
+      text,
+      "--write-media",
+      tempFilePath
+    ]);
+
+    return fs.readFileSync(tempFilePath);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      throw new Error("edge-tts가 서버에 설치되지 않았습니다.");
+    }
+
+    throw error;
+  } finally {
+    if (fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
   }
 }
 
@@ -324,7 +332,8 @@ const server = http.createServer((request, response) => {
   if (requestUrl.pathname === "/health") {
     sendJson(response, 200, {
       ok: true,
-      hasElevenLabsKey: Boolean(ELEVENLABS_API_KEY),
+      ttsProvider: "edge-tts",
+      edgeVoice: EDGE_TTS_VOICE,
       queueSize: getQueuedRequests().length
     });
     return;
